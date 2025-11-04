@@ -1,4 +1,4 @@
-DeTrust Protocol — Ethereum Risk Analysis Dashboard
+                                            DeTrust Protocol — Ethereum Risk Analysis Dashboard
 
 **DeTrust Protocol** is a web application designed to monitor **live Ethereum transactions** and provide **real-time risk analysis**.  
 It assigns **risk scores** to transactions and **trust scores** to wallets, helping users identify potentially fraudulent or suspicious activity.
