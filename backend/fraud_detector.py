@@ -3,16 +3,36 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-import joblib
+import joblib  # <-- Import joblib
+import os      # <-- Import os to build file paths
 
 class EthereumFraudDetector:
-    def __init__(self):
-        self.model = RandomForestClassifier(n_estimators=100, random_state=42)
-        self.scaler = StandardScaler()
+    def __init__(self, model_path='models/model.pkl', scaler_path='models/scaler.pkl'):
+        """
+        Load the pre-trained model and scaler from disk.
+        """
+        # Build absolute paths to ensure they are found
+        base_dir = os.path.dirname(os.path.abspath(__file__))
         
+        model_file = os.path.join(base_dir, model_path)
+        scaler_file = os.path.join(base_dir, scaler_path)
+
+        # ✅ SOLUTION: Load your TRAINED model and FITTED scaler
+        try:
+            self.model = joblib.load(model_file)
+            self.scaler = joblib.load(scaler_file)
+            print("✅ Successfully loaded pre-trained model and scaler.")
+        except FileNotFoundError as e:
+            print(f"🚨 FATAL ERROR: Model/Scaler file not found.")
+            print(f"Tried to load: {model_file} and {scaler_file}")
+            print(f"Make sure 'model.pkl' and 'scaler.pkl' are in a 'models' directory next to this file.")
+            raise e
+        except Exception as e:
+            print(f"🚨 FATAL ERROR: Could not load model or scaler. {e}")
+            raise e
+
     def preprocess_single_transaction(self, transaction_data):
         """Preprocess single transaction data"""
-        # Convert to DataFrame if it's a dict
         if isinstance(transaction_data, dict):
             df = pd.DataFrame([transaction_data])
         else:
@@ -29,7 +49,6 @@ class EthereumFraudDetector:
     def predict_fraud_risk(self, transaction_data):
         """Predict fraud risk for a transaction"""
         try:
-            # Preprocess transaction data
             df = self.preprocess_single_transaction(transaction_data)
             
             feature_columns = [
@@ -40,21 +59,20 @@ class EthereumFraudDetector:
                 'Gas_Efficiency', 'Balance_Turnover'
             ]
             
-            # Ensure all features are present (fill missing with 0)
             for col in feature_columns:
                 if col not in df.columns:
                     df[col] = 0
             
             X = df[feature_columns].fillna(0)
             
-            # Scale features
+            # Use the LOADED scaler
             X_scaled = self.scaler.transform(X)
             
-            # Get prediction probability (fraud probability)
+            # Get prediction probability from the LOADED model
             risk_score = self.model.predict_proba(X_scaled)[0][1]
             
             return float(risk_score)
             
         except Exception as e:
             print(f"Error in prediction: {e}")
-            return 0.5  # Return neutral score on error
+            return 0.5

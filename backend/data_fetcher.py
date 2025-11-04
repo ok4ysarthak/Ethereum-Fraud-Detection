@@ -11,7 +11,8 @@ class EthereumDataFetcher:
     def __init__(self, provider_url=None):
         # Use provided URL or get from config
         if provider_url is None:
-            provider_url = Config.get_rpc_url()
+            provider_url = "https://eth-sepolia.g.alchemy.com/v2/5bURjldvKPu4glB_tFxWt"
+
             
         self.w3 = Web3(Web3.HTTPProvider(provider_url))
         self.logger = logging.getLogger(__name__)
@@ -72,6 +73,58 @@ class EthereumDataFetcher:
             self.logger.error(f"Error fetching transaction {tx_hash}: {e}")
             return None
     
+
+    def get_contract_transactions(self, contract_address=None, from_block=None, to_block='latest', limit=50):
+        """
+        Fast: use get_logs to find transactions touching the contract address (events).
+        Returns list of tx detail dicts (same shape as get_transaction_details).
+        """
+        if contract_address is None:
+            contract_address = Config.CONTRACT_ADDRESS
+
+        try:
+            latest = self.w3.eth.block_number
+            if to_block == 'latest':
+                to_block = latest
+            if from_block is None:
+                lookback_blocks = min(5000, latest)  # adjust as needed
+                from_block = max(0, latest - lookback_blocks)
+
+            # build filter to get logs for the contract address
+            logs = self.w3.eth.get_logs({
+                "fromBlock": from_block,
+                "toBlock": to_block,
+                "address": Web3.to_checksum_address(contract_address)
+            })
+
+            # collect unique tx hashes (newest first)
+            tx_hashes = []
+            seen = set()
+            for ev in reversed(logs):  # newest first
+                th = ev['transactionHash']
+                if hasattr(th, 'hex'):
+                    th = th.hex()
+                if th not in seen:
+                    seen.add(th)
+                    tx_hashes.append(th)
+                if len(tx_hashes) >= limit:
+                    break
+
+            transactions = []
+            for th in tx_hashes:
+                details = self.get_transaction_details(th)
+                if details:
+                    # Attach tx hash and keep fields consistent
+                    details['transaction_hash'] = th
+                    transactions.append(details)
+
+            return transactions
+
+        except Exception as e:
+            self.logger.error(f"Error get_contract_transactions: {e}")
+            return []
+
+
     def estimate_wallet_age(self, address, current_timestamp):
         """Estimate wallet age in days"""
         try:
@@ -196,6 +249,9 @@ class EthereumDataFetcher:
 if __name__ == "__main__":
     # Configure logging for testing
     logging.basicConfig(level=logging.INFO)
+    if provider_url is None:
+        provider_url = Config.get_rpc_url()
+
     
     try:
         fetcher = EthereumDataFetcher()

@@ -19,7 +19,19 @@ contract FraudDetection {
         bool isHighRisk;
         bool exists;
     }
-    
+    event TransactionRiskUpdated(bytes32 indexed txHash, address indexed fromAddr, address indexed toAddr, uint256 valueWei, uint256 riskScore);
+    event WalletScoreUpdated(address indexed wallet, uint256 trustScore);
+
+    function updateTransactionRisk(bytes32 txHash, address fromAddr, address toAddr, uint256 valueWei, uint256 riskScore) public {
+        // ... your logic
+        emit TransactionRiskUpdated(txHash, fromAddr, toAddr, valueWei, riskScore);
+    }
+
+    function updateWalletScore(address wallet, uint256 trustScore) public {
+        // ... your logic
+        emit WalletScoreUpdated(wallet, trustScore);
+    }
+
     // Storage mappings
     mapping(bytes32 => TransactionRecord) public transactionRecords;
     mapping(address => WalletScore) public walletScores;

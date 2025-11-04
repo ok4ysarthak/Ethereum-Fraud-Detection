@@ -41,13 +41,9 @@ class Config:
     API_HOST = '0.0.0.0'
     API_PORT = 5000
     
-    @classmethod
-    def get_rpc_url(cls):
-        """Get the appropriate RPC URL based on network selection"""
-        if cls.NETWORK == 'sepolia':
-            return cls.SEPOLIA_RPC_URL
-        else:
-            return cls.ETHEREUM_PROVIDER_URL
+    @staticmethod
+    def get_rpc_url():
+        return Config.SEPOLIA_RPC_URL
 
 # Create logs directory if it doesn't exist
 import os
