@@ -82,8 +82,8 @@ npm install
 ```
 
 ⚠️ IMPORTANT: Configure the Proxy
-
 Open the package.json file in this folder and ensure the following line is present inside the main JSON object {}:
+```
 
 "proxy": "http://localhost:5000"
 
@@ -96,6 +96,7 @@ Your browser should automatically open at:
 👉 http://localhost:3000
 
 The app will now fetch data from the backend running on port 5000.
+```
 
 How It Works
 
@@ -104,25 +105,6 @@ The "proxy" setting in package.json forwards unknown API requests (like /transac
 
 This setup prevents CORS issues — a standard practice for local development.
 
-.
 
-📂 Project Structure (Frontend)
-frontend/detrust-frontend
-├── public/
-├── src/
-│   ├── components/
-│   │   ├── ContractInfo.js
-│   │   ├── Header.js
-│   │   ├── Home.js
-│   │   ├── TransactionLookup.js
-│   │   ├── Transactions.js
-│   │   └── WalletLookup.js
-│   ├── App.css
-│   ├── App.js
-│   ├── index.css
-│   └── index.js
-├── .gitignore
-├── package.json
-└── README.md
 
 
