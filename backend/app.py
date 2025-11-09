@@ -1,28 +1,20 @@
-# backend/app.py
 import os
 import joblib
 import numpy as np
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 import logging
 from datetime import datetime
 import threading
 import time
 from flask_cors import CORS
-
-# Import your other modules (make sure these modules exist in backend/)
-from data_fetcher import EthereumDataFetcher
-from wallet_scorer import WalletScorer
-from batch_processor import BatchProcessor
+from web3 import Web3 
+from flask_socketio import SocketIO, emit
 from config import Config
-# backend/app.py  (or wherever your Flask app is)
-from flask import Flask, request, jsonify
-from datetime import datetime
 
-
-IN_MEMORY_TXS = []
-
-app = Flask(__name__)
+# Tell Flask where the 'static' folder is
+app = Flask(__name__, static_folder='static') 
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # --- Setup Logging ---
 logging.basicConfig(
@@ -35,117 +27,74 @@ logging.basicConfig(
 )
 for handler in logging.getLogger().handlers:
     if isinstance(handler, logging.StreamHandler):
-        try:
-            handler.stream.reconfigure(encoding='utf-8')
-        except Exception:
-            pass
-
+        try: handler.stream.reconfigure(encoding='utf-8')
+        except Exception: pass
 logger = logging.getLogger(__name__)
 
-# --- Model Loading ---
+# --- Model Loading (for /predict/transaction) ---
 MODEL_PATH = Config.MODEL_PATH
-
 model = None
 detector = None
-data_fetcher = None
-wallet_scorer = None
-batch_processor = None
-batch_thread = None
 
 def load_model():
-    """Load the model and initialize components."""
-    global model, detector, data_fetcher, wallet_scorer, batch_processor
+    """Load *only* the ML model for the /predict/transaction endpoint."""
+    global model, detector
     try:
         detector = joblib.load(MODEL_PATH)
         model = detector.model if hasattr(detector, 'model') else detector
-
-        # If the sklearn model has feature_names_in_, log it for debugging
         try:
             if hasattr(model, 'feature_names_in_'):
                 logger.info(f"Model expects features: {list(model.feature_names_in_)}")
-        except Exception:
-            pass
-
-        # Initialize other components
-        sepolia_rpc = os.getenv("SEPOLIA_RPC_URL") or "https://eth-sepolia.g.alchemy.com/v2/5bURjldvKPu4glB_tFxWt"
-        data_fetcher = EthereumDataFetcher(sepolia_rpc)
-        wallet_scorer = WalletScorer(detector)
-        batch_processor = BatchProcessor(data_fetcher, detector, wallet_scorer)
-
-        logger.info(f"✅ Model and components loaded successfully from {MODEL_PATH}")
+        except Exception: pass
+        logger.info(f"✅ ML Model loaded successfully from {MODEL_PATH}")
     except FileNotFoundError:
         logger.error(f"❌ Error: Model file not found at {MODEL_PATH}")
-        logger.error("Please make sure you have trained the model first.")
         exit(1)
     except Exception as e:
         logger.error(f"❌ Error loading model: {e}")
         exit(1)
 
+# --- In-Memory Cache ---
+PROCESSED_TX_CACHE = {} # Stores the FULL payload from oracle.py
+CACHE_MAX_SIZE = 1000
+cache_lock = threading.Lock()
+
 # ---------------------------
 # Helpers
 # ---------------------------
 def get_risk_level(risk_score):
-    if risk_score >= 0.8:
-        return "Very High"
-    elif risk_score >= 0.6:
-        return "High"
-    elif risk_score >= 0.4:
-        return "Medium"
-    elif risk_score >= 0.2:
-        return "Low"
-    else:
-        return "Very Low"
+    if risk_score >= 0.8: return "Very High"
+    elif risk_score >= 0.6: return "High"
+    elif risk_score >= 0.4: return "Medium"
+    elif risk_score >= 0.2: return "Low"
+    else: return "Very Low"
 
 def get_trust_level(trust_score):
-    if trust_score >= 0.8:
-        return "Very High"
-    elif trust_score >= 0.6:
-        return "High"
-    elif trust_score >= 0.4:
-        return "Medium"
-    elif trust_score >= 0.2:
-        return "Low"
-    else:
-        return "Very Low"
+    if trust_score >= 0.8: return "Very High"
+    elif trust_score >= 0.6: return "High"
+    elif trust_score >= 0.4: return "Medium"
+    elif trust_score >= 0.2: return "Low"
+    else: return "Very Low"
 
 def extract_features_from_tx(raw_tx):
-    """
-    Defensive extraction of the 9 raw features your model expects.
-    Returns a dict with keys:
-      Transaction_Value, Transaction_Fees, Number_of_Inputs,
-      Number_of_Outputs, Gas_Price, Wallet_Age_Days, Wallet_Balance,
-      Transaction_Velocity, Exchange_Rate
-    """
     defaults = {
-        "Transaction_Value": 0.0,
-        "Transaction_Fees": 0.0,
-        "Number_of_Inputs": 0.0,
-        "Number_of_Outputs": 0.0,
-        "Gas_Price": 0.0,
-        "Wallet_Age_Days": 0.0,
-        "Wallet_Balance": 0.0,
-        "Transaction_Velocity": 0.0,
-        "Exchange_Rate": 0.0
+        "Transaction_Value": 0.0, "Transaction_Fees": 0.0,
+        "Number_of_Inputs": 0.0, "Number_of_Outputs": 0.0,
+        "Gas_Price": 0.0, "Wallet_Age_Days": 0.0, "Wallet_Balance": 0.0,
+        "Transaction_Velocity": 0.0, "Exchange_Rate": 0.0
     }
-    if not raw_tx:
-        return defaults.copy()
-
+    if not raw_tx: return defaults.copy()
     f = {}
     for k in defaults.keys():
         if k in raw_tx:
-            try:
-                f[k] = float(raw_tx.get(k) or 0.0)
-            except:
-                f[k] = defaults[k]
+            try: f[k] = float(raw_tx.get(k) or 0.0)
+            except: f[k] = defaults[k]
         else:
             lk = k.lower()
             if lk in raw_tx:
-                try:
-                    f[k] = float(raw_tx.get(lk) or 0.0)
-                except:
-                    f[k] = defaults[k]
+                try: f[k] = float(raw_tx.get(lk) or 0.0)
+                except: f[k] = defaults[k]
             else:
-                # try common aliases
                 alt = {
                     "Transaction_Value": ["value", "value_eth", "amount"],
                     "Transaction_Fees": ["fee", "fees", "transaction_fee"],
@@ -164,121 +113,78 @@ def extract_features_from_tx(raw_tx):
                             f[k] = float(raw_tx.get(a) or 0.0)
                             found = True
                             break
-                        except:
-                            continue
-                if not found:
-                    f[k] = defaults[k]
+                        except: continue
+                if not found: f[k] = defaults[k]
     return f
 
 def build_complete_feature_vector(raw_features_dict):
-    """
-    Given the 9 raw features as dict, compute engineered features and return numeric vector of length 13.
-    Order (important): raw 9 in this exact order, then engineered features:
-      - value_to_fee_ratio
-      - input_output_ratio
-      - gas_efficiency
-      - balance_turnover
-    """
     feature_order = [
         'Transaction_Value', 'Transaction_Fees', 'Number_of_Inputs',
         'Number_of_Outputs', 'Gas_Price', 'Wallet_Age_Days',
         'Wallet_Balance', 'Transaction_Velocity', 'Exchange_Rate'
     ]
-    arr = []
-    for k in feature_order:
-        arr.append(float(raw_features_dict.get(k, 0.0) or 0.0))
-
-    tx_value = arr[0]
-    tx_fees = arr[1]
-    num_inputs = arr[2]
-    num_outputs = arr[3]
-    gas_price = arr[4]
-    wallet_balance = arr[6]
-
-    # engineered features (use small epsilon to avoid divide-by-zero)
+    arr = [float(raw_features_dict.get(k, 0.0) or 0.0) for k in feature_order]
+    tx_value = arr[0]; tx_fees = arr[1]; num_inputs = arr[2]
+    num_outputs = arr[3]; gas_price = arr[4]; wallet_balance = arr[6]
     eps = 1e-8
     value_to_fee_ratio = tx_value / (tx_fees + eps)
     input_output_ratio = num_inputs / (num_outputs + eps)
     gas_efficiency = tx_value / (gas_price + eps)
     balance_turnover = tx_value / (wallet_balance + eps)
-
-    arr_extended = arr + [
-        value_to_fee_ratio, input_output_ratio, gas_efficiency, balance_turnover
-    ]
-    return arr_extended, feature_order + [
-        "value_to_fee_ratio", "input_output_ratio", "gas_efficiency", "balance_turnover"
-    ]
+    arr_extended = arr + [value_to_fee_ratio, input_output_ratio, gas_efficiency, balance_turnover]
+    return arr_extended, feature_order + ["value_to_fee_ratio", "input_output_ratio", "gas_efficiency", "balance_turnover"]
 
 # ---------------------------
-# POST /predict/transaction
+# --- Frontend Static Routes ---
+# ---------------------------
+@app.route('/')
+def serve_index():
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_static_files(path):
+    try:
+        return send_from_directory(app.static_folder, path)
+    except:
+        return send_from_directory(app.static_folder, 'index.html')
+
+# ---------------------------
+# API: POST /predict/transaction
+# (This is used by your oracle.py)
 # ---------------------------
 @app.route('/predict/transaction', methods=['POST'])
 def predict_transaction_risk():
-    """
-    Expect JSON: { "features": { ... } }
-    We'll build the full 13-feature numeric vector and call the predictor.
-    """
-    if not detector:
-        return jsonify({"error": "Model not loaded"}), 500
-
+    if not detector: return jsonify({"error": "Model not loaded"}), 500
     try:
         data = request.get_json(force=True)
         features_dict = data.get('features') or data.get('input_features') or data
-
-        # Defensive extraction if user posted an entire transaction object
         if not isinstance(features_dict, dict):
             return jsonify({"error": "Invalid features payload"}), 400
-
-        # Extract the 9 raw features (with fallbacks)
         raw_feats = extract_features_from_tx(features_dict)
-
-        # Build 13-length numeric vector
         complete_vector, full_feature_names = build_complete_feature_vector(raw_feats)
-
-        # Convert to numpy array for sklearn
         X = np.array([complete_vector], dtype=float)
-
-        # Try to call detector in several ways:
         risk_probability = None
-        # 1) If detector has a convenience method that accepts dicts
         if hasattr(detector, 'predict_fraud_risk'):
-            try:
-                # Try dict call first (some wrappers accept dict)
-                risk_probability = float(detector.predict_fraud_risk(raw_feats))
-            except Exception as e:
-                logger.debug(f"detector.predict_fraud_risk(dict) failed: {e}. Will try numeric model call.")
-
-        # 2) If risk_probability still None, try sklearn-style predict_proba on model (or detector)
+            try: risk_probability = float(detector.predict_fraud_risk(raw_feats))
+            except Exception as e: logger.debug(f"detector.predict_fraud_risk(dict) failed: {e}.")
         if risk_probability is None:
             try:
-                # Prefer model if present
                 m = model if model is not None else detector
                 if hasattr(m, "predict_proba"):
                     prob = m.predict_proba(X)
-                    # assume binary classifier, positive class is index 1
                     risk_probability = float(prob[0][1])
                 elif hasattr(m, "predict"):
                     out = m.predict(X)
-                    # If predict returns class label, try to map or cast
-                    try:
-                        risk_probability = float(out[0])
-                    except:
-                        # fallback 0/1 mapping
-                        risk_probability = 1.0 if out[0] == 1 else 0.0
-                else:
-                    # last resort: call detector.predict_fraud_risk with the dict (again)
-                    if hasattr(detector, 'predict_fraud_risk'):
-                        risk_probability = float(detector.predict_fraud_risk(raw_feats))
+                    try: risk_probability = float(out[0])
+                    except: risk_probability = 1.0 if out[0] == 1 else 0.0
+                elif hasattr(detector, 'predict_fraud_risk'):
+                    risk_probability = float(detector.predict_fraud_risk(raw_feats))
             except Exception as e:
                 logger.error(f"Error calling numeric model: {e}")
                 return jsonify({"error": f"Model prediction failed: {str(e)}"}), 400
-
-        # prepare response
         input_features_return = raw_feats.copy()
-        # attach engineered features as well
         engineered = dict(zip(full_feature_names[-4:], complete_vector[-4:]))
         input_features_return.update(engineered)
-
         risk_probability = float(risk_probability)
         return jsonify({
             "risk_probability": risk_probability,
@@ -286,178 +192,219 @@ def predict_transaction_risk():
             "is_high_risk": risk_probability > Config.HIGH_RISK_THRESHOLD,
             "input_features": input_features_return
         }), 200
-
     except Exception as e:
         logger.error(f"❌ Error during transaction prediction: {e}")
         return jsonify({"error": str(e)}), 400
 
 # ---------------------------
-# GET /transactions
+# API: GET /wallets
+# (Reads from the cache populated by the oracle)
+# ---------------------------
+@app.route('/wallets', methods=['GET'])
+def get_wallets():
+    with cache_lock:
+        wallet_scores = {}
+        # Iterate in reverse chronological order
+        for tx in sorted(PROCESSED_TX_CACHE.values(), key=lambda x: x.get("timestamp", 0), reverse=True):
+            from_addr = tx.get("from_address")
+            if from_addr and from_addr not in wallet_scores:
+                wallet_scores[from_addr] = tx.get("wallet_trust_score") 
+    
+    limit = int(request.args.get('limit', 100))
+    wallet_list = [{"address": addr, "score": score} for addr, score in wallet_scores.items() if score is not None]
+    wallet_list.sort(key=lambda x: x.get('score', 1.0)) # Sort by score, lowest trust first
+    return jsonify(wallet_list[:limit]), 200
+
+# ---------------------------
+# API: GET /wallet/<address>
+# (Reads from the cache populated by the oracle)
+# ---------------------------
+@app.route('/wallet/<address>', methods=['GET'])
+def get_wallet(address):
+    latest_score = None
+    history = []
+    try:
+        checksum_addr = Web3.to_checksum_address(address)
+    except:
+        return jsonify({"error": "Invalid wallet address format"}), 400
+    with cache_lock:
+        # Find all txs from this wallet and its latest score
+        for tx in sorted(PROCESSED_TX_CACHE.values(), key=lambda x: x.get("timestamp", 0), reverse=True):
+            from_addr = tx.get("from_address")
+            if from_addr and Web3.to_checksum_address(from_addr) == checksum_addr:
+                if latest_score is None:
+                    latest_score = tx.get("wallet_trust_score") # Get latest score
+                
+                history.append({
+                    "hash": tx.get("transaction_hash"),
+                    "value": tx.get("Transaction_Value"),
+                    "risk_probability": tx.get("risk_probability"),
+                    "timestamp": tx.get("timestamp")
+                })
+    
+    if latest_score is None:
+        return jsonify({"error": "Wallet not found in cache"}), 404
+
+    return jsonify({
+        "address": checksum_addr,
+        "trust_score": float(latest_score),
+        "trust_level": get_trust_level(float(latest_score)),
+        "history": history[:20] # Return 20 most recent
+    }), 200
+
+# ---------------------------
+# API: GET /transactions
+# (Reads from the cache populated by the oracle)
 # ---------------------------
 @app.route('/transactions', methods=['GET'])
-def get_recent_transactions():
+def get_transactions():
     try:
-        tx_list = []
-        # allow client to request number via ?n=50
-        try:
-            n = int(request.args.get('n') or 50)
-        except:
-            n = 50
-
-        if data_fetcher and hasattr(data_fetcher, 'get_latest_transactions'):
-            tx_list = data_fetcher.get_latest_transactions(n) or []
-        else:
-            if wallet_scorer and hasattr(wallet_scorer, 'wallet_history'):
-                hist = getattr(wallet_scorer, 'wallet_history', {}) or {}
-                for addr, txs in hist.items():
-                    for tx in txs:
-                        tx_list.append(tx)
-
-        normalized = []
-        for tx in tx_list:
-            txd = tx if isinstance(tx, dict) else getattr(tx, '__dict__', {})
+        n = int(request.args.get('n') or request.args.get('limit') or 50)
+        
+        with cache_lock:
+            all_processed_full = list(PROCESSED_TX_CACHE.values())
+            
+        all_processed_full.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        
+        # --- FIX: Normalize on the fly ---
+        # The cache contains the FULL payload, but the tables need the SIMPLE payload.
+        normalized_list = []
+        for tx_data in all_processed_full[:n]:
+            risk_score = float(tx_data.get("risk_probability", 0.0))
+            wallet_score = float(tx_data.get("wallet_trust_score", 0.0))
             mapped = {
-                "id": txd.get("hash") or txd.get("transaction_hash") or txd.get("tx_hash") or txd.get("id") or "",
-                "from": txd.get("from_address") or txd.get("from") or txd.get("sender") or "",
-                "to": txd.get("to_address") or txd.get("to") or txd.get("receiver") or "",
-                "value": (txd.get("Transaction_Value") or txd.get("value") or txd.get("value_eth") or txd.get("amount") or "0 ETH"),
-                "riskScore": float(txd.get("risk_probability") or txd.get("fraud_risk") or txd.get("risk_score") or 0.0),
-                "walletScore": float(txd.get("wallet_score") or txd.get("trust_score") or 0.0),
-                "timestamp": txd.get("timestamp") or txd.get("time") or txd.get("created_at") or "",
-                "status": txd.get("status") or ("flagged" if float(txd.get("risk_probability", 0) or 0) > Config.HIGH_RISK_THRESHOLD else "processed")
+                "id": tx_data.get("transaction_hash") or "",
+                "from": tx_data.get("from_address") or "",
+                "to": tx_data.get("to_address") or "",
+                "value": tx_data.get("Transaction_Value") or 0,
+                "riskScore": risk_score,
+                "walletScore": wallet_score,
+                "timestamp": tx_data.get("timestamp") or "",
+                "status": ("flagged" if risk_score > Config.HIGH_RISK_THRESHOLD else "processed")
             }
-            normalized.append(mapped)
-
-        return jsonify(normalized), 200
+            normalized_list.append(mapped)
+        return jsonify(normalized_list), 200
     except Exception as e:
-        logger.error(f"❌ Error in /transactions endpoint: {e}")
+        logger.error(f"❌ Error in /transactions GET endpoint: {e}")
         return jsonify({"error": str(e)}), 500
 
 # ---------------------------
-# GET /transaction/<tx_hash>
+# --- FIX: POST /transactions ---
+# (This is the endpoint your oracle.py is trying to hit)
+# ---------------------------
+@app.route('/transactions', methods=['POST'])
+def add_transaction():
+    """
+    Receives an enriched transaction payload from oracle.py,
+    caches it, and broadcasts a simplified version to all connected clients.
+    """
+    try:
+        data = request.get_json(force=True) # This is the full, rich payload from oracle.py
+        if not data or not isinstance(data, dict):
+            return jsonify({"error": "Invalid JSON payload"}), 400
+        tx_hash = data.get("transaction_hash")
+        if not tx_hash:
+            return jsonify({"error": "Missing 'transaction_hash'"}), 400
+
+        # --- FIX: Store the FULL data payload ---
+        with cache_lock:
+            PROCESSED_TX_CACHE[tx_hash] = data # Store the whole thing
+            
+            # Prune cache if it gets too big
+            if len(PROCESSED_TX_CACHE) > CACHE_MAX_SIZE:
+                sorted_items = sorted(PROCESSED_TX_CACHE.items(), key=lambda item: item[1].get("timestamp", 0))
+                num_to_remove = len(PROCESSED_TX_CACHE) - CACHE_MAX_SIZE
+                for i in range(num_to_remove):
+                    del PROCESSED_TX_CACHE[sorted_items[i][0]]
+        
+        # --- Create the simple version ONLY for the broadcast ---
+        risk_score = float(data.get("risk_probability", 0.0))
+        wallet_score = float(data.get("wallet_trust_score", 0.0))
+        mapped_tx_for_broadcast = {
+            "id": data.get("transaction_hash") or "",
+            "from": data.get("from_address") or "",
+            "to": data.get("to_address") or "",
+            "value": data.get("Transaction_Value") or 0,
+            "riskScore": risk_score,
+            "walletScore": wallet_score,
+            "timestamp": data.get("timestamp") or int(time.time()),
+            "status": ("flagged" if risk_score > Config.HIGH_RISK_THRESHOLD else "processed")
+        }
+        
+        socketio.emit('new_transaction', mapped_tx_for_broadcast) # Emit the simple version
+        
+        logger.info(f"Cached full oracle payload for: {tx_hash}")
+        return jsonify({"status": "ok", "cached_hash": tx_hash}), 201
+    
+    except Exception as e:
+        logger.error(f"❌ Error in /transactions POST endpoint: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# ---------------------------
+# API: GET /transaction/<tx_hash>
+# (Reads from the cache populated by the oracle)
 # ---------------------------
 @app.route('/transaction/<tx_hash>', methods=['GET'])
 def lookup_transaction(tx_hash):
     try:
-        raw_tx = None
-        # 1) search wallet_history
-        if wallet_scorer and hasattr(wallet_scorer, 'wallet_history'):
-            history = getattr(wallet_scorer, 'wallet_history', {}) or {}
-            found = False
-            for addr, txs in history.items():
-                for tx in txs:
-                    tx_hash_val = (tx.get('hash') if isinstance(tx, dict) else getattr(tx, 'hash', None))
-                    if tx_hash_val and str(tx_hash_val).lower() == tx_hash.lower():
-                        raw_tx = tx if isinstance(tx, dict) else getattr(tx, '__dict__', tx)
-                        found = True
-                        break
-                if found:
+        norm_hash = tx_hash
+        if not tx_hash.startswith("0x"):
+            norm_hash = "0x" + tx_hash
+        
+        with cache_lock:
+            tx_data = PROCESSED_TX_CACHE.get(norm_hash)
+
+        if not tx_data:
+             # Try to find it even if the case is different
+            for key, val in PROCESSED_TX_CACHE.items():
+                if key.lower() == norm_hash.lower():
+                    tx_data = val
                     break
+            if not tx_data:
+                return jsonify({"error": "Transaction not found in cache"}), 404
 
-        # 2) try data_fetcher
-        if not raw_tx and data_fetcher and hasattr(data_fetcher, 'get_transaction_details'):
-            try:
-                raw = data_fetcher.get_transaction_details(tx_hash)
-                if raw:
-                    raw_tx = raw
-            except Exception as e:
-                logger.debug(f"data_fetcher.get_transaction_details failed: {e}")
-
-        if not raw_tx:
-            return jsonify({"error": "Transaction not found"}), 404
-
-        features = extract_features_from_tx(raw_tx)
-        # build full vector for model if needed
-        try:
-            Xvec, names = build_complete_feature_vector(features)
-        except:
-            Xvec = None
-
-        risk_probability = 0.0
-        try:
-            if detector and hasattr(detector, 'predict_fraud_risk'):
-                risk_probability = float(detector.predict_fraud_risk(features))
-            else:
-                m = model if model is not None else detector
-                if hasattr(m, "predict_proba") and Xvec is not None:
-                    prob = m.predict_proba(np.array([Xvec], dtype=float))
-                    risk_probability = float(prob[0][1])
-                elif hasattr(m, "predict") and Xvec is not None:
-                    out = m.predict(np.array([Xvec], dtype=float))
-                    try:
-                        risk_probability = float(out[0])
-                    except:
-                        risk_probability = 1.0 if out[0] == 1 else 0.0
-        except Exception as e:
-            logger.error(f"Error while predicting risk for tx {tx_hash}: {e}")
-            risk_probability = 0.0
-
-        from_addr = raw_tx.get("from_address") or raw_tx.get("from") or None
-        to_addr = raw_tx.get("to_address") or raw_tx.get("to") or None
-        from_score = None
-        to_score = None
-        try:
-            if wallet_scorer and hasattr(wallet_scorer, 'get_wallet_score'):
-                if from_addr:
-                    from_score = wallet_scorer.get_wallet_score(from_addr)
-                if to_addr:
-                    to_score = wallet_scorer.get_wallet_score(to_addr)
-        except Exception as e:
-            logger.debug(f"Error getting wallet scores: {e}")
-
+        # --- FIX: Return the FULL data payload ---
+        # The frontend modal will look for 'raw_transaction'
+        risk_score = float(tx_data.get("risk_probability", 0.0))
         result = {
-            "transaction_hash": tx_hash,
-            "raw_transaction": raw_tx,
-            "features": features,
-            "risk_probability": float(risk_probability),
-            "risk_level": get_risk_level(float(risk_probability)),
-            "is_high_risk": float(risk_probability) > Config.HIGH_RISK_THRESHOLD,
-            "from_address": from_addr,
-            "to_address": to_addr,
-            "from_wallet_score": float(from_score) if from_score is not None else None,
-            "to_wallet_score": float(to_score) if to_score is not None else None,
+            "transaction_hash": tx_data.get("transaction_hash"),
+            "raw_transaction": tx_data.get("raw_details") or tx_data, # This is the full object
+            "features": tx_data.get("raw_details") or tx_data, # Also put it here
+            
+            "risk_probability": risk_score,
+            "risk_level": get_risk_level(risk_score),
+            "is_high_risk": risk_score > Config.HIGH_RISK_THRESHOLD,
+            "from_address": tx_data.get("from_address"),
+            "to_address": tx_data.get("to_address"),
+            "from_wallet_score": tx_data.get("wallet_trust_score"),
+            "to_wallet_score": None, # We don't track receiver score in this model
+            "timestamp": tx_data.get("timestamp"),
+            "value": tx_data.get("Transaction_Value")
         }
-
         return jsonify(result), 200
 
     except Exception as e:
         logger.error(f"❌ Error in /transaction/{tx_hash} lookup: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/transactions', methods=['GET'])
-def get_transactions():
-    # optional ?limit query param
-    limit = int(request.args.get('limit', 100))
-    # return newest first
-    return jsonify(IN_MEMORY_TXS[:limit]), 200
+# ---------------------------
+# --- Socket.IO Events ---
+# ---------------------------
+@socketio.on('connect')
+def handle_connect():
+    logger.info(f"Client connected: {request.sid}")
 
-@app.route('/transactions', methods=['POST'])
-def post_transaction():
-    try:
-        data = request.get_json(force=True)
-        if not data:
-            return jsonify({"error": "empty payload"}), 400
-
-        # Accept either a single tx dict or a list
-        if isinstance(data, list):
-            # prepend so newest appear first in GET
-            for tx in reversed(data):
-                IN_MEMORY_TXS.insert(0, tx)
-        else:
-            IN_MEMORY_TXS.insert(0, data)
-
-        # optionally keep in-memory list bounded
-        if len(IN_MEMORY_TXS) > 2000:
-            IN_MEMORY_TXS[:] = IN_MEMORY_TXS[:2000]
-
-        return jsonify({"status": "ok", "added": 1}), 201
-    except Exception as e:
-        app.logger.exception("Failed to ingest transaction")
-        return jsonify({"error": str(e)}), 500
-
+@socketio.on('disconnect')
+def handle_disconnect():
+    logger.info(f"Client disconnected: {request.sid}")
 
 # --- Main Execution ---
 if __name__ == '__main__':
     load_model()
+    
     logger.info("🚀 Ethereum Fraud Detection API starting...")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    logger.info("This server *receives* data from oracle.py.")
+    logger.info("Run 'python oracle.py' in a separate terminal to start data processing.")
+    
+    # --- Run with SocketIO ---
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
