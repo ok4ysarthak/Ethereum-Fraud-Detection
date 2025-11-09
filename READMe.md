@@ -103,6 +103,8 @@ How It Works
 The React development server at http://localhost:3000 serves the user interface.
 The "proxy" setting in package.json forwards unknown API requests (like /transactions) to the backend server at http://localhost:5000
 
+You can see the smart contract via: https://eth-sepolia.blockscout.com/address/0x88BA205f0f203d16AF42314168F904bE37a59E40?tab=txs
+
 This setup prevents CORS issues — a standard practice for local development.
 
 
