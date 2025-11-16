@@ -6,8 +6,11 @@
     <title>ETH Fraud Detection Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- NEW: Socket.IO Client Library -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -17,8 +20,6 @@
         ::-webkit-scrollbar-track { background: #111827; }
         ::-webkit-scrollbar-thumb { background-color: #374151; border-radius: 6px; border: 3px solid #111827; }
         ::-webkit-scrollbar-thumb:hover { background-color: #4b5563; }
-        [data-tab-content] { display: none; }
-        [data-tab-content].active { display: block; }
         .risk-high-glow { box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         .fade-in { animation: fadeIn 0.5s ease-out forwards; }
@@ -49,7 +50,6 @@
 </head>
 <body class="text-gray-200">
 
-    <!-- Header and Navigation -->
     <header class="bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50 shadow-lg shadow-black/20 border-b border-gray-700/50">
         <nav class="container mx-auto px-4 lg:px-6">
             <div class="flex justify-between items-center py-4">
@@ -61,19 +61,17 @@
                     ETH Fraud Detection
                 </h1>
                 <div class="flex items-center space-x-4">
-                    <button class="tab-btn px-4 py-2 text-sm font-medium text-gray-400 hover:text-white transition-colors border-b-2 border-transparent" data-tab="dashboard">Dashboard</button>
-                    <button class="tab-btn px-4 py-2 text-sm font-medium text-gray-400 hover:text-white transition-colors border-b-2 border-transparent" data-tab="activity">Recent Activity</button>
-                    <button class="tab-btn px-4 py-2 text-sm font-medium text-gray-400 hover:text-white transition-colors border-b-2 border-transparent" data-tab="live">Live Feed</button>
+                    <a href="/" class="nav-link px-4 py-2 text-sm font-medium text-gray-400 hover:text-white transition-colors border-b-2 border-transparent" data-page="dashboard">Dashboard</a>
+                    <a href="/activity" class="nav-link px-4 py-2 text-sm font-medium text-gray-400 hover:text-white transition-colors border-b-2 border-transparent" data-page="activity">Recent Activity</a>
+                    <a href="/live" class="nav-link px-4 py-2 text-sm font-medium text-gray-400 hover:text-white transition-colors border-b-2 border-transparent" data-page="live">Live Feed</a>
                 </div>
             </div>
         </nav>
     </header>
 
-    <!-- Main Content Area -->
     <main class="container mx-auto px-4 lg:px-6 py-8">
 
-        <!-- Tab 1: Dashboard (Home Page) -->
-        <section id="dashboard" class="data-tab-content fade-in">
+        <section id="dashboard" class="fade-in">
             <h2 class="text-2xl font-semibold text-white mb-4">Risk Overview</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <div class="bg-gray-800/50 p-6 rounded-lg shadow-lg border border-gray-700/50">
@@ -93,146 +91,22 @@
                     <p id="stat-high-tx" class="text-3xl font-bold text-red-400 mt-2">-</p>
                 </div>
             </div>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div>
-                    <h2 class="text-2xl font-semibold text-white mb-4">Recent Risky Wallets</h2>
-                    <div class="bg-gray-800/50 rounded-lg shadow-lg border border-gray-700/50 overflow-hidden">
-                        <table class="w-full min-w-full divide-y divide-gray-700">
-                            <thead class="bg-gray-800">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Wallet Address</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Risk Level</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Trust Score</th>
-                                </tr>
-                            </thead>
-                            <tbody id="recent-wallets-table" class="bg-gray-800/60 divide-y divide-gray-700/50"></tbody>
-                        </table>
-                    </div>
-                </div>
-                <div>
-                    <h2 class="text-2xl font-semibold text-white mb-4">Recent Flagged Transactions</h2>
-                    <div class="bg-gray-800/50 rounded-lg shadow-lg border border-gray-700/50 overflow-hidden">
-                        <table class="w-full min-w-full divide-y divide-gray-700">
-                            <thead class="bg-gray-800">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Transaction Hash</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Risk Level</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Risk Score</th>
-                                </tr>
-                            </thead>
-                            <tbody id="recent-tx-table" class="bg-gray-800/60 divide-y divide-gray-700/50"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Tab 2: Recent Activity -->
-        <section id="activity" class="data-tab-content fade-in">
-            <h2 class="text-2xl font-semibold text-white mb-4">Activity Lookup</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
                 <div class="bg-gray-800/50 p-6 rounded-lg shadow-lg border border-gray-700/50">
-                    <label for="wallet-lookup" class="block text-sm font-medium text-gray-300 mb-2">Wallet Address Lookup</label>
-                    <div class="flex">
-                        <input type="text" id="wallet-lookup" class="flex-grow bg-gray-900 border border-gray-700 text-gray-200 rounded-l-md p-3" placeholder="0x...">
-                        <button id="wallet-lookup-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold p-3 rounded-r-md">
-                            <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-                        </button>
-                    </div>
+                    <h3 class="text-lg font-medium text-gray-300 mb-4">Transaction Risk Distribution</h3>
+                    <div id="tx-risk-donut-chart" class="min-h-[300px] w-full"></div>
                 </div>
                 <div class="bg-gray-800/50 p-6 rounded-lg shadow-lg border border-gray-700/50">
-                    <label for="tx-lookup" class="block text-sm font-medium text-gray-300 mb-2">Transaction Hash Lookup</label>
-                    <div class="flex">
-                        <input type="text" id="tx-lookup" class="flex-grow bg-gray-900 border border-gray-700 text-gray-200 rounded-l-md p-3" placeholder="0x...">
-                        <button id="tx-lookup-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold p-3 rounded-r-md">
-                            <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-                        </button>
-                    </div>
+                    <h3 class="text-lg font-medium text-gray-300 mb-4">Wallet Trust Distribution</h3>
+                    <div id="wallet-trust-donut-chart" class="min-h-[300px] w-full"></div>
                 </div>
             </div>
             
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div>
-                    <h2 class="text-2xl font-semibold text-white mb-4">All Flagged Wallets</h2>
-                    <div class="bg-gray-800/50 rounded-lg shadow-lg border border-gray-700/50 overflow-hidden">
-                        <div class="overflow-y-auto max-h-[600px]">
-                            <table class="w-full min-w-full divide-y divide-gray-700">
-                                <thead class="bg-gray-800 sticky top-0">
-                                    <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Wallet Address</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Risk Level</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Trust Score</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="all-wallets-table" class="bg-gray-800/60 divide-y divide-gray-700/50"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div>
-                    <h2 class="text-2xl font-semibold text-white mb-4">All Flagged Transactions</h2>
-                    <div class="bg-gray-800/50 rounded-lg shadow-lg border border-gray-700/50 overflow-hidden">
-                        <div class="overflow-y-auto max-h-[600px]">
-                            <table class="w-full min-w-full divide-y divide-gray-700">
-                                <thead class="bg-gray-800 sticky top-0">
-                                    <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Tx Hash</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">From</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">To</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Risk Level</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Time</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="all-tx-table" class="bg-gray-800/60 divide-y divide-gray-700/50"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Tab 3: Live Transaction Feed -->
-        <section id="live" class="data-tab-content fade-in">
-            <h2 class="text-2xl font-semibold text-white mb-4">Live Feed Lookup</h2>
-            <div class="bg-gray-800/50 p-6 rounded-lg shadow-lg border border-gray-700/50 mb-8">
-                <label for="live-lookup" class="block text-sm font-medium text-gray-300 mb-2">Lookup Address or Tx Hash</label>
-                <div class="flex">
-                    <input type="text" id="live-lookup" class="flex-grow bg-gray-900 border border-gray-700 text-gray-200 rounded-l-md p-3" placeholder="0x...">
-                    <button id="live-lookup-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold p-3 rounded-r-md">
-                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-                    </button>
-                </div>
-            </div>
-
-            <h2 class="text-2xl font-semibold text-white mb-4 flex items-center">
-                <span id="live-feed-status-dot" class="relative flex h-3 w-3 mr-3">
-                  <!-- JS will update this dot -->
-                  <span class="relative inline-flex rounded-full h-3 w-3 bg-gray-500"></span>
-                </span>
-                Live Transaction Feed
-            </h2>
-            <div class="bg-gray-800/50 rounded-lg shadow-lg border border-gray-700/50 overflow-hidden">
-                <div class="overflow-y-auto max-h-[700px]">
-                    <table class="w-full min-w-full divide-y divide-gray-700">
-                        <thead class="bg-gray-800 sticky top-0">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Tx Hash</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Time</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">From</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">To</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Value (ETH)</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Oracle Risk</th>
-                            </tr>
-                        </thead>
-                        <tbody id="live-feed-table" class="bg-gray-800/60 divide-y divide-gray-700/50"></tbody>
-                    </table>
-                </div>
-            </div>
         </section>
 
     </main>
 
-    <!-- Modal for Lookup Results -->
     <div id="modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
         <div class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-2xl border border-gray-700 animate-fadeIn">
             <div class="flex justify-between items-center p-4 border-b border-gray-700">
@@ -252,23 +126,38 @@
         // =======================================================================
         
         const CONFIG = {
-            API_BASE: '', // Relative path
+            API_BASE: '', // Relative path (your backend)
             SOCKET_URL: `${window.location.protocol}//${window.location.host}`, // Connect to same server
             ETHERSCAN_BASE: 'https://sepolia.etherscan.io',
             HIGH_RISK_THRESHOLD: 0.6,
             LOW_TRUST_THRESHOLD: 0.4,
-            REFRESH_INTERVAL: 30000
+            REFRESH_INTERVAL: 30000,
+            ALCHEMY_WS: 'wss://eth-sepolia.g.alchemy.com/v2/YOUR_ALCHEMY_KEY'
         };
 
         // Global state
         let refreshInterval = null;
         let seenTxHashes = new Set();
         let globalSocket = null;
+        let alchemyConnected = false;
 
 
         // =======================================================================
-        // UTILITY FUNCTIONS (NEW & UPDATED)
+        // UTILITY FUNCTIONS
         // =======================================================================
+        
+        function setActiveNav() {
+            const path = window.location.pathname;
+            document.querySelectorAll('.nav-link').forEach(link => {
+                const page = link.dataset.page;
+                const isActive = (path === '/' && page === 'dashboard') || (path.startsWith('/' + page) && page !== 'dashboard');
+                
+                link.classList.toggle('text-blue-400', isActive);
+                link.classList.toggle('border-blue-400', isActive);
+                link.classList.toggle('text-gray-400', !isActive);
+                link.classList.toggle('border-transparent', !isActive);
+            });
+        }
 
         const truncate = (str, n = 6) => {
             if (!str) return '...';
@@ -287,8 +176,16 @@
         };
 
         const formatValue = (value) => {
-            const num = parseFloat(value) || 0;
+            const num = parseFloat(value);
+            if (Number.isNaN(num)) return '0.00000';
             return num.toFixed(5);
+        };
+
+        const formatPercentNullable = (score) => {
+            if (score === null || score === undefined) return 'N/A';
+            const n = Number(score);
+            if (Number.isNaN(n)) return 'N/A';
+            return (n * 100).toFixed(1) + '%';
         };
 
         const timeAgo = (timestamp) => {
@@ -326,7 +223,7 @@
             } catch (error) {
                 console.error(`Fetch error for ${url}:`, error);
                 if (options.method !== 'GET' || url.startsWith('/transaction/') || url.startsWith('/wallet/')) {
-                     showModal(`<p class="text-red-400"><strong>API Connection Error:</strong> ${error.message}.<br/>Is your backend server running?</p>`);
+                        showModal(`<p class="text-red-400"><strong>API Connection Error:</strong> ${error.message}.<br/>Is your backend server running?</p>`);
                 }
                 return null;
             }
@@ -398,7 +295,6 @@
         function showTableNoData(tableBody, colSpan, message = "No data found.") {
              tableBody.innerHTML = `<tr><td colspan="${colSpan}" class="px-6 py-8 text-center text-gray-500">${message}</td></tr>`;
         }
-
         
         // =======================================================================
         // DATA RENDERING FUNCTIONS (API-DRIVEN)
@@ -415,7 +311,8 @@
             let highRiskTx = 0;
             txs.forEach(tx => {
                 if(tx && tx.from) wallets.add(tx.from);
-                if (tx && tx.walletScore < CONFIG.LOW_TRUST_THRESHOLD) { highRiskWallets++; }
+                const walletScore = tx.walletScore !== undefined ? tx.walletScore : tx.walletScore; // defensive
+                if (tx && walletScore !== null && walletScore !== undefined && walletScore < CONFIG.LOW_TRUST_THRESHOLD) { highRiskWallets++; }
                 if (tx && tx.riskScore > CONFIG.HIGH_RISK_THRESHOLD) { highRiskTx++; }
             });
             document.getElementById('stat-total-wallets').textContent = wallets.size;
@@ -424,216 +321,132 @@
             document.getElementById('stat-high-tx').textContent = highRiskTx;
         }
 
-        async function renderRecentWallets() {
-            const tableBody = document.getElementById('recent-wallets-table');
-            showTableLoader(tableBody, 3);
-            const wallets = await safeFetch('/wallets?limit=10', { method: 'GET' });
-            if (!wallets || !Array.isArray(wallets) || wallets.length === 0) {
-                showTableNoData(tableBody, 3, "No risky wallets found.");
-                return;
-            }
-            tableBody.innerHTML = '';
-            wallets.slice(0, 5).forEach(wallet => {
-                const tr = document.createElement('tr');
-                const trustScore = wallet.score;
-                const riskLabel = scoreToLabel(trustScore, 'trust');
-                tr.className = `hover:bg-gray-700/50 transition-colors cursor-pointer ${getScoreClass(trustScore, 'trust', 'bg')}`;
-                if (trustScore < CONFIG.LOW_TRUST_THRESHOLD) { tr.classList.add('risk-high-glow'); }
-                tr.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm">${formatAddress(wallet.address)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm"><span class="flex items-center px-3 py-1 font-medium rounded-full ${getScoreClass(trustScore, 'trust', 'badge')}">${getRiskIcon(trustScore, 'trust')} ${riskLabel}</span></td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium ${getScoreClass(trustScore, 'trust', 'text')}">${(trustScore * 100).toFixed(1)}%</td>
-                `;
-                tr.addEventListener('click', () => handleWalletLookup(wallet.address));
-                tableBody.appendChild(tr);
-            });
-        }
-
-        async function renderRecentTransactions() {
-            const tableBody = document.getElementById('recent-tx-table');
-            showTableLoader(tableBody, 3);
-            const txs = await safeFetch('/transactions?limit=20', { method: 'GET' });
-            if (!txs || !Array.isArray(txs) || txs.length === 0) {
-                showTableNoData(tableBody, 3, "No transactions found.");
-                return;
-            }
-            const recentTx = txs.sort((a, b) => (b.riskScore || 0) - (a.riskScore || 0)).slice(0, 5);
-            tableBody.innerHTML = '';
-            recentTx.forEach(tx => {
-                const tr = document.createElement('tr');
-                const riskLabel = scoreToLabel(tx.riskScore, 'risk');
-                tr.className = `hover:bg-gray-700/50 transition-colors cursor-pointer ${getScoreClass(tx.riskScore, 'risk', 'bg')}`;
-                if (tx.riskScore > CONFIG.HIGH_RISK_THRESHOLD) { tr.classList.add('risk-high-glow'); }
-                tr.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm">${formatTxHash(tx.id)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm"><span class="flex items-center px-3 py-1 font-medium rounded-full ${getScoreClass(tx.riskScore, 'risk', 'badge')}">${getRiskIcon(tx.riskScore, 'risk')} ${riskLabel}</span></td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium ${getScoreClass(tx.riskScore, 'risk', 'text')}">${(tx.riskScore * 100).toFixed(1)}%</td>
-                `;
-                tr.addEventListener('click', () => handleTxLookup(tx.id));
-                tableBody.appendChild(tr);
-            });
-        }
-
-        async function renderAllWallets() {
-            const tableBody = document.getElementById('all-wallets-table');
-            showTableLoader(tableBody, 3);
-            const wallets = await safeFetch('/wallets?limit=100', { method: 'GET' });
-            if (!wallets || !Array.isArray(wallets) || wallets.length === 0) {
-                showTableNoData(tableBody, 3, "No wallets found.");
-                return;
-            }
-            tableBody.innerHTML = '';
-            wallets.forEach(wallet => {
-                const tr = document.createElement('tr');
-                const trustScore = wallet.score;
-                const riskLabel = scoreToLabel(trustScore, 'trust');
-                tr.className = `hover:bg-gray-700/50 transition-colors cursor-pointer ${getScoreClass(trustScore, 'trust', 'bg')}`;
-                tr.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm">${formatAddress(wallet.address)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm"><span class="flex items-center px-3 py-1 font-medium rounded-full ${getScoreClass(trustScore, 'trust', 'badge')}">${getRiskIcon(trustScore, 'trust')} ${riskLabel}</span></td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium ${getScoreClass(trustScore, 'trust', 'text')}">${(trustScore * 100).toFixed(1)}%</td>
-                `;
-                tr.addEventListener('click', () => handleWalletLookup(wallet.address));
-                tableBody.appendChild(tr);
-            });
-        }
-
-        async function renderAllTransactions() {
-            const tableBody = document.getElementById('all-tx-table');
-            showTableLoader(tableBody, 5);
-            const txs = await safeFetch('/transactions?limit=100', { method: 'GET' });
-            if (!txs || !Array.isArray(txs) || txs.length === 0) {
-                showTableNoData(tableBody, 5, "No transactions found.");
-                return;
-            }
-            tableBody.innerHTML = '';
-            txs.forEach(tx => {
-                const tr = document.createElement('tr');
-                const riskLabel = scoreToLabel(tx.riskScore, 'risk');
-                tr.className = `hover:bg-gray-700/50 transition-colors cursor-pointer ${getScoreClass(tx.riskScore, 'risk', 'bg')}`;
-                tr.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm">${formatTxHash(tx.id)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm">${formatAddress(tx.from)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm">${formatAddress(tx.to)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm"><span class="flex items-center px-3 py-1 font-medium rounded-full ${getScoreClass(tx.riskScore, 'risk', 'badge')}">${getRiskIcon(tx.riskScore, 'risk')} ${riskLabel}</span></td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">${timeAgo(tx.timestamp)}</td>
-                `;
-                tr.addEventListener('click', () => handleTxLookup(tx.id));
-                tableBody.appendChild(tr);
-            });
-        }
-
-        // --- NEW: Live Feed Logic (WebSocket) ---
+        // --- NEW CHART FUNCTIONS ---
         
-        function prependLiveTransaction(tx) {
-            if (!tx || !tx.id || seenTxHashes.has(tx.id)) return;
-            
-            const tableBody = document.getElementById('live-feed-table');
-            const noDataRow = tableBody.querySelector('td[colspan="6"]');
-            if (noDataRow) noDataRow.parentElement.remove();
+        async function renderTxRiskDonutChart() {
+            const txs = await safeFetch('/transactions?limit=200', { method: 'GET' });
+            if (!txs || !Array.isArray(txs)) return;
 
-            const tr = document.createElement('tr');
-            const riskLabel = scoreToLabel(tx.riskScore, 'risk');
-            tr.className = `animate-fadeIn cursor-pointer ${getScoreClass(tx.riskScore, 'risk', 'bg')}`;
-            
-            tr.innerHTML = `
-                <td class="px-6 py-4 whitespace-nowrap text-sm">${formatTxHash(tx.id)}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">${timeAgo(tx.timestamp)}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm">${formatAddress(tx.from)}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm">${formatAddress(tx.to)}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatValue(tx.value)}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm"><span class="flex items-center px-3 py-1 font-medium rounded-full ${getScoreClass(tx.riskScore, 'risk', 'badge')}">${getRiskIcon(tx.riskScore, 'risk')} ${riskLabel}</span></td>
-            `;
-            tr.addEventListener('click', () => handleTxLookup(tx.id));
-            
-            tableBody.prepend(tr);
-            seenTxHashes.add(tx.id);
+            let high = 0, medium = 0, low = 0;
+            txs.forEach(tx => {
+                const score = tx.riskScore || 0;
+                if (score > 0.6) high++;
+                else if (score > 0.3) medium++;
+                else low++;
+            });
 
-            while (tableBody.rows.length > 100) { tableBody.deleteRow(tableBody.rows.length - 1); }
-            if (seenTxHashes.size > 200) {
-                const oldHashes = Array.from(seenTxHashes).slice(0, 100);
-                oldHashes.forEach(hash => seenTxHashes.delete(hash));
-            }
+            const options = {
+                chart: { 
+                    type: 'donut',
+                    foreColor: '#9ca3af' // Sets text color for dark mode
+                },
+                series: [high, medium, low],
+                labels: ['High Risk (> 60%)', 'Medium Risk (30-60%)', 'Low Risk (< 30%)'],
+                colors: ['#EF4444', '#F59E0B', '#10B981'], // Red, Yellow, Green
+                legend: { 
+                    position: 'bottom',
+                    labels: {
+                        colors: '#9ca3af' // Legend text color
+                    }
+                },
+                theme: {
+                    mode: 'dark' // Ensures tooltips are dark
+                },
+                responsive: [{
+                    breakpoint: 480,
+                    options: {
+                        chart: {
+                            width: "100%"
+                        },
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }]
+            };
+            
+            // Clear previous chart before rendering
+            document.querySelector("#tx-risk-donut-chart").innerHTML = '';
+            const chart = new ApexCharts(document.querySelector("#tx-risk-donut-chart"), options);
+            chart.render();
         }
+
+        async function renderWalletTrustDonutChart() {
+            const wallets = await safeFetch('/wallets?limit=200', { method: 'GET' });
+            if (!wallets || !Array.isArray(wallets)) return;
+
+            let lowTrust = 0, mediumTrust = 0, highTrust = 0;
+            wallets.forEach(wallet => {
+                const score = wallet.score;
+                if (score === null || score === undefined) return; // Skip wallets without score
+                
+                if (score < 0.4) lowTrust++;
+                else if (score < 0.7) mediumTrust++;
+                else highTrust++;
+            });
+
+            const options = {
+                chart: { 
+                    type: 'donut',
+                    foreColor: '#9ca3af'
+                },
+                series: [highTrust, mediumTrust, lowTrust],
+                labels: ['High Trust (> 70%)', 'Medium Trust (40-70%)', 'Low Trust (< 40%)'],
+                colors: ['#10B981', '#F59E0B', '#EF4444'], // Green, Yellow, Red
+                legend: { 
+                    position: 'bottom',
+                    labels: {
+                        colors: '#9ca3af'
+                    }
+                },
+                theme: {
+                    mode: 'dark'
+                },
+                responsive: [{
+                    breakpoint: 480,
+                    options: {
+                        chart: {
+                            width: "100%"
+                        },
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }]
+            };
+
+            // Clear previous chart before rendering
+            document.querySelector("#wallet-trust-donut-chart").innerHTML = '';
+            const chart = new ApexCharts(document.querySelector("#wallet-trust-donut-chart"), options);
+            chart.render();
+        }
+
+        // --- END CHART FUNCTIONS ---
         
         function connectToSocket() {
             if (globalSocket) globalSocket.disconnect();
-            
             globalSocket = io(CONFIG.SOCKET_URL);
-            const statusDot = document.getElementById('live-feed-status-dot');
-
-            globalSocket.on('connect', () => {
-                console.log('Socket.IO connected successfully.');
-                statusDot.innerHTML = `<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>`;
-            });
-
-            globalSocket.on('disconnect', () => {
-                console.warn('Socket.IO disconnected.');
-                statusDot.innerHTML = `<span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>`;
-            });
-
-            globalSocket.on('new_transaction', (tx) => {
-                console.log('New live transaction received:', tx);
-                const liveTab = document.getElementById('live');
-                if (liveTab.classList.contains('active')) {
-                    prependLiveTransaction(tx);
-                }
-                // Always update dashboard stats in the background
-                renderDashboardStats();
-            });
+            globalSocket.on('connect', () => console.log('Socket.IO connected.'));
+            globalSocket.on('disconnect', () => console.warn('Socket.IO disconnected.'));
+            globalSocket.on('connect_error', (err) => console.error('Socket.IO connection error:', err));
             
-            globalSocket.on('connect_error', (err) => {
-                console.error('Socket.IO connection error:', err);
-                statusDot.innerHTML = `<span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>`;
+            // Listen for updates to refresh stats
+            globalSocket.on('new_transaction', (tx) => {
+                 console.log('New tx, refreshing stats', tx);
+                 renderDashboardStats();
+                 // Also refresh charts
+                 renderTxRiskDonutChart();
+                 renderWalletTrustDonutChart();
             });
         }
         
-        async function loadInitialLiveFeed() {
-            const tableBody = document.getElementById('live-feed-table');
-            showTableLoader(tableBody, 6); 
-            seenTxHashes.clear();
-            
-            const txs = await safeFetch('/transactions?limit=50', { method: 'GET' });
-            if (!txs || !Array.isArray(txs) || txs.length === 0) {
-                showTableNoData(tableBody, 6, "Waiting for new transactions...");
+        function startAlchemyWebsocket() {
+            if (!CONFIG.ALCHEMY_WS || CONFIG.ALCHEMY_WS.includes('YOUR_ALCHEMY_KEY')) {
+                console.warn('Alchemy WS not configured.');
                 return;
             }
-            
-            tableBody.innerHTML = '';
-            txs.forEach(tx => { prependLiveTransaction(tx); });
         }
-        
-        // =======================================================================
-        // TAB HANDLING & NAVIGATION
-        // =======================================================================
-        
-        function setupTabs() {
-            const tabs = document.querySelectorAll('.tab-btn');
-            const tabContents = document.querySelectorAll('.data-tab-content');
-            function switchTab(tabId) {
-                tabs.forEach(btn => {
-                    btn.classList.toggle('text-blue-400', btn.dataset.tab === tabId);
-                    btn.classList.toggle('border-blue-400', btn.dataset.tab === tabId);
-                    btn.classList.toggle('text-gray-400', btn.dataset.tab !== tabId);
-                    btn.classList.toggle('border-transparent', btn.dataset.tab !== tabId);
-                });
-                tabContents.forEach(content => {
-                    content.classList.toggle('active', content.id === tabId);
-                });
-                
-                if (tabId === 'live') {
-                    loadInitialLiveFeed(); // Load historical data for the feed
-                }
-                if (tabId === 'dashboard' || tabId === 'activity') {
-                    refreshDashboardAndActivity();
-                }
-            }
-            tabs.forEach(tab => {
-                tab.addEventListener('click', () => switchTab(tab.dataset.tab));
-            });
-            switchTab('dashboard');
-        }
-        
+
         // =======================================================================
         // LOOKUP & MODAL HANDLING
         // =======================================================================
@@ -655,143 +468,39 @@
         }
 
         function setupLookup() {
+            // No lookup buttons on this page, but we set up the modal close
             modalCloseBtn.addEventListener('click', hideModal);
             modal.addEventListener('click', (e) => { if (e.target === modal) hideModal(); });
-            document.getElementById('wallet-lookup-btn').addEventListener('click', () => {
-                const query = document.getElementById('wallet-lookup').value.trim();
-                if (query) handleWalletLookup(query);
-            });
-            document.getElementById('tx-lookup-btn').addEventListener('click', () => {
-                const query = document.getElementById('tx-lookup').value.trim();
-                if (query) handleTxLookup(query);
-            });
-            document.getElementById('live-lookup-btn').addEventListener('click', () => {
-                const query = document.getElementById('live-lookup').value.trim();
-                if (!query) return;
-                if (query.length > 50) { handleTxLookup(query); } 
-                else { handleWalletLookup(query); }
-            });
         }
         
-        async function handleWalletLookup(query) {
-            showModal(`<div class="flex justify-center items-center p-4"><div class="loading-dot"></div><div class="loading-dot"></div><div class="loading-dot"></div><span class="loader-text ml-2">Loading wallet data...</span></div>`, "Wallet Lookup");
-            const data = await safeFetch(`/wallet/${query}`, { method: 'GET' });
-            if (!data || typeof data !== 'object') { return; }
-            
-            const score = data.trust_score;
-            const label = data.trust_level || scoreToLabel(score, 'trust');
-            let historyHtml = '<p class="text-gray-400">No transaction history found.</p>';
-            if (data.history && data.history.length > 0) {
-                historyHtml = `
-                    <div class="overflow-y-auto max-h-40 bg-gray-900/50 rounded-md border border-gray-700/50">
-                        <table class="w-full min-w-full text-sm">
-                            <thead class="bg-gray-800/60"><tr>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">Hash</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">Value</th>
-                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">Risk</th>
-                            </tr></thead>
-                            <tbody class="divide-y divide-gray-700/50">
-                                ${data.history.map(tx => `
-                                    <tr class="hover:bg-gray-700/40">
-                                        <td class="px-3 py-2">${formatTxHash(tx.hash)}</td>
-                                        <td class="px-3 py-2">${formatValue(tx.value)}</td>
-                                        <td class="px-3 py-2 ${getScoreClass(tx.risk_probability, 'risk', 'text')}">${(tx.risk_probability * 100).toFixed(1)}%</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>`;
-            }
-            const content = `
-                <div class="space-y-4">
-                    <h4 class="text-lg font-semibold text-white">Wallet: <span class="font-mono text-base text-blue-300">${data.address}</span></h4>
-                    <p>${formatAddress(data.address).replace('etherscan-link', 'etherscan-link text-sm').replace(truncate(data.address), 'View on Etherscan')}</p>
-                    <div class="flex items-center">
-                        <span class="text-sm text-gray-400 mr-2">Trust Level:</span>
-                        <span class="flex items-center px-3 py-1 font-medium rounded-full ${getScoreClass(score, 'trust', 'badge')}">${getRiskIcon(score, 'trust')} ${label}</span>
-                    </div>
-                    <p><span class="text-sm text-gray-400">Trust Score:</span> <span class="font-medium text-xl ${getScoreClass(score, 'trust', 'text')}">${(score * 100).toFixed(1)}%</span></p>
-                    <hr class="border-gray-700/50" />
-                    <h5 class="text-base font-semibold text-gray-300">Recent Transaction History</h5>
-                    ${historyHtml}
-                </div>`;
-            showModal(content, "Wallet Details");
-        }
-
-        async function handleTxLookup(query) {
-            showModal(`<div class="flex justify-center items-center p-4"><div class="loading-dot"></div><div class="loading-dot"></div><div class="loading-dot"></div><span class="loader-text ml-2">Loading transaction data...</span></div>`, "Transaction Lookup");
-            const data = await safeFetch(`/transaction/${query}`, { method: 'GET' });
-            if (!data || typeof data !== 'object') { return; }
-
-            const riskScore = data.risk_probability;
-            const riskLabel = data.risk_level || scoreToLabel(riskScore, 'risk');
-            const fromScore = data.from_wallet_score;
-            const toScore = data.to_wallet_score;
-            const content = `
-                <div class="space-y-3">
-                    <h4 class="text-base font-semibold text-white">Transaction: <span class="font-mono text-sm text-blue-300">${data.transaction_hash}</span></h4>
-                    <p>${formatTxHash(data.transaction_hash).replace('etherscan-link', 'etherscan-link text-sm').replace(truncate(data.transaction_hash), 'View on Etherscan')}</p>
-                    
-                    <div class="grid grid-cols-2 gap-4 bg-gray-900/30 p-4 rounded-lg border border-gray-700/50">
-                        <div>
-                            <label class="block text-xs text-gray-400">Transaction Risk</label>
-                            <p class="text-xl font-bold ${getScoreClass(riskScore, 'risk', 'text')}">${(riskScore * 100).toFixed(1)}%</p>
-                            <span class="flex items-center w-fit px-3 py-1 text-sm font-medium rounded-full ${getScoreClass(riskScore, 'risk', 'badge')}">${getRiskIcon(riskScore, 'risk')} ${riskLabel}</span>
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-400">Value</label>
-                            <p class="text-xl font-bold text-white">${formatValue(data.value)} ETH</p>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-400">From Address</label>
-                            <p class="font-mono text-white">${formatAddress(data.from_address)}</p>
-                            <p class="text-sm"><span class="text-gray-400">Sender Trust:</span> <span class="${getScoreClass(fromScore, 'trust', 'text')}">${fromScore !== null ? (fromScore * 100).toFixed(1) + '%' : 'N/A'}</span></p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-400">To Address</label>
-                            <p class="font-mono text-white">${formatAddress(data.to_address)}</p>
-                            <p class="text-sm"><span class="text-gray-400">Receiver Trust:</span> <span class="${getScoreClass(toScore, 'trust', 'text')}">${toScore !== null ? (toScore * 100).toFixed(1) + '%' : 'N/A'}</span></p>
-                        </div>
-                    </div>
-                    <p><span class="text-sm text-gray-400">Timestamp:</span> <span class="font-medium text-white">${timeAgo(data.timestamp)}</span></p>
-                    <details class="pt-2">
-                        <summary class="text-sm text-gray-500 cursor-pointer hover:text-white">Show Raw Data</summary>
-                        <!-- THIS IS THE FIX: We display data.raw_transaction, which holds the full payload -->
-                        <pre class="debug-json">${JSON.stringify(data.raw_transaction || data, null, 2)}</pre>
-                    </details>
-                </div>`;
-            showModal(content, "Transaction Details");
-        }
+        // (Lookup handlers are not needed on this page, but don't break anything)
+        async function handleWalletLookup(query) { /* ... */ }
+        async function handleTxLookup(query) { /* ... */ }
 
         // =======================================================================
         // INITIALIZATION
         // =======================================================================
         
-        function refreshDashboardAndActivity() {
-            renderDashboardStats();
-            renderRecentWallets();
-            renderRecentTransactions();
-            renderAllWallets();
-            renderAllTransactions();
-        }
-
         document.addEventListener('DOMContentLoaded', () => {
-            setupTabs();
-            setupLookup();
-            refreshDashboardAndActivity(); // Initial load
-            connectToSocket(); // Connect to WebSocket
+            setActiveNav();
+            setupLookup(); // Sets up modal close button
             
+            // Load data for this page
+            renderDashboardStats();
+            renderTxRiskDonutChart();     // <-- LOAD CHARTS
+            renderWalletTrustDonutChart(); // <-- LOAD CHARTS
+
+            connectToSocket(); 
+
             if (refreshInterval) clearInterval(refreshInterval);
             refreshInterval = setInterval(() => {
-                const activeTab = document.querySelector('.tab-btn.text-blue-400');
-                if (activeTab && activeTab.dataset.tab !== 'live') {
-                    refreshDashboardAndActivity();
-                }
+                // Refresh all dashboard data
+                renderDashboardStats();
+                renderTxRiskDonutChart();
+                renderWalletTrustDonutChart();
+
             }, CONFIG.REFRESH_INTERVAL);
         });
 
-    </script>
-</body>
+    </script></body>
 </html>

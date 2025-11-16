@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETH Fraud Detection - Live Feed</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0a0e1a;
+        }
+        ::-webkit-scrollbar { width: 12px; }
+        ::-webkit-scrollbar-track { background: #111827; }
+        ::-webkit-scrollbar-thumb { background-color: #374151; border-radius: 6px; border: 3px solid #111827; }
+        ::-webkit-scrollbar-thumb:hover { background-color: #4b5563; }
+        /* [data-tab-content] { display: none; } */ /* No longer needed */
+        /* [data-tab-content].active { display: block; } */ /* No longer needed */
+        .risk-high-glow { box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        .loading-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#60a5fa; margin-right:8px; animation: pulse 1.2s infinite ease-in-out; }
+        .loading-dot:nth-child(2) { animation-delay: 0.2s; }
+        .loading-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } }
+        .loader-text { font-size: 0.875rem; color: #9ca3af; }
+        pre.debug-json { background-color: #0c1220; border: 1px solid #374151; border-radius: 8px; padding: 12px; max-height: 200px; overflow-y: auto; color: #d1d5db; font-size: 0.8rem; line-height: 1.4; margin-top: 16px; }
+        
+        .etherscan-link {
+            color: #60a5fa;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .etherscan-link:hover {
+            color: #93c5fd;
+            text-decoration: underline;
+        }
+        .icon-svg {
+            width: 1.1rem;
+            height: 1.1rem;
+            margin-right: 0.35rem;
+            display: inline-block;
+            vertical-align: text-bottom;
+        }
+    </style>
+</head>
+<body class="text-gray-200">
+
+    <header class="bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50 shadow-lg shadow-black/20 border-b border-gray-700/50">
+        <nav class="container mx-auto px-4 lg:px-6">
+            <div class="flex justify-between items-center py-4">
+                <h1 class="text-2xl font-bold text-white flex items-center">
+                    <svg class="w-6 h-6 mr-2 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17L17.25 12 11.42 8.83l-5.83 3.17M12 21l-5.83-3.17v-6.34L12 15l5.83-3.17v6.34L12 21z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v6.17l5.83 3.17L12 15l-5.83-3.17L12 3z" />
+                    </svg>
+                    ETH Fraud Detection
+                </h1>
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="nav-link px-4 py-2 text-sm font-medium text-gray-400 hover:text-white transition-colors border-b-2 border-transparent" data-page="dashboard">Dashboard</a>
+                    <a href="/activity" class="nav-link px-4 py-2 text-sm font-medium text-gray-400 hover:text-white transition-colors border-b-2 border-transparent" data-page="activity">Recent Activity</a>
+                    <a href="/live" class="nav-link px-4 py-2 text-sm font-medium text-gray-400 hover:text-white transition-colors border-b-2 border-transparent" data-page="live">Live Feed</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main class="container mx-auto px-4 lg:px-6 py-8">
+
+        <section id="live" class="fade-in">
+            <h2 class="text-2xl font-semibold text-white mb-4">Live Feed Lookup</h2>
+            <div class="bg-gray-800/50 p-6 rounded-lg shadow-lg border border-gray-700/50 mb-8">
+                <label for="live-lookup" class="block text-sm font-medium text-gray-300 mb-2">Lookup Address or Tx Hash</label>
+                <div class="flex">
+                    <input type="text" id="live-lookup" class="flex-grow bg-gray-900 border border-gray-700 text-gray-200 rounded-l-md p-3" placeholder="0x...">
+                    <button id="live-lookup-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold p-3 rounded-r-md">
+                        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+                    </button>
+                </div>
+            </div>
+
+            <h2 class="text-2xl font-semibold text-white mb-4 flex items-center">
+                <span id="live-feed-status-dot" class="relative flex h-3 w-3 mr-3">
+                    <span class="relative inline-flex rounded-full h-3 w-3 bg-gray-500"></span>
+                </span>
+                Live Transaction Feed
+            </h2>
+            <div class="bg-gray-800/50 rounded-lg shadow-lg border border-gray-700/50 overflow-hidden">
+                <div class="overflow-y-auto max-h-[700px]">
+                    <table class="w-full min-w-full divide-y divide-gray-700">
+                        <thead class="bg-gray-800 sticky top-0">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Tx Hash</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Time</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">From</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">To</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Value (ETH)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Oracle Risk</th>
+                            </tr>
+                        </thead>
+                        <tbody id="live-feed-table" class="bg-gray-800/60 divide-y divide-gray-700/50"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <div id="modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-2xl border border-gray-700 animate-fadeIn">
+            <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                <h3 id="modal-title" class="text-xl font-semibold text-white">Lookup Result</h3>
+                <button id="modal-close-btn" class="text-gray-400 hover:text-white">
+                    <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div id="modal-content" class="p-6 text-gray-300"></div>
+        </div>
+    </div>
+
+
+    <script>
+        // =======================================================================
+        // CONFIGURATION
+        // =======================================================================
+        
+        const CONFIG = {
+            API_BASE: '', // Relative path (your backend)
+            SOCKET_URL: `${window.location.protocol}//${window.location.host}`, // Connect to same server
+            ETHERSCAN_BASE: 'https://sepolia.etherscan.io',
+            HIGH_RISK_THRESHOLD: 0.6,
+            LOW_TRUST_THRESHOLD: 0.4,
+            REFRESH_INTERVAL: 30000,
+            // Replace the ALCHEMY_WS value below with your Alchemy WebSocket URL if you want direct browser WS:
+            // Example: "wss://eth-sepolia.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+            // If you leave this blank the frontend will not connect directly to Alchemy.
+            ALCHEMY_WS: 'wss://eth-sepolia.g.alchemy.com/v2/5bURjldvKPu4glB_tFxWt'
+        };
+
+        // Global state
+        let refreshInterval = null;
+        let seenTxHashes = new Set();
+        let globalSocket = null;
+        let alchemyConnected = false;
+
+
+       // =======================================================================
+        // UTILITY FUNCTIONS
+        // =======================================================================
+
+        // ... (your other utilities) ...
+
+        // --- ADD THIS NEW FUNCTION ---
+        // Creates the HTML for a transaction row
+        function createTxRowHtml(tx) {
+            const riskLabel = scoreToLabel(tx.riskScore, 'risk');
+            const riskPercent = formatPercentNullable(tx.riskScore);
+            return `
+                <td class="px-6 py-4 whitespace-nowrap text-sm">${formatTxHash(tx.id)}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">${timeAgo(tx.timestamp)}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm">${formatAddress(tx.from)}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm">${formatAddress(tx.to)}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300">${formatValue(tx.value)}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                    <span class="flex items-center px-3 py-1 font-medium rounded-full ${getScoreClass(tx.riskScore, 'risk', 'badge')}">
+                        ${getRiskIcon(tx.riskScore, 'risk')} 
+                        ${riskLabel === 'Unknown' ? 'Unknown' : riskPercent}
+                    </span>
+                </td>
+            `;
+        }
+        
+        function setActiveNav() {
+            const path = window.location.pathname;
+            document.querySelectorAll('.nav-link').forEach(link => {
+                const page = link.dataset.page;
+                // Check if it's the home page or a subpage
+                const isActive = (path === '/' && page === 'dashboard') || (path.startsWith('/' + page) && page !== 'dashboard');
+                
+                link.classList.toggle('text-blue-400', isActive);
+                link.classList.toggle('border-blue-400', isActive);
+                link.classList.toggle('text-gray-400', !isActive);
+                link.classList.toggle('border-transparent', !isActive);
+            });
+        }
+
+        const truncate = (str, n = 6) => {
+            if (!str) return '...';
+            if (str.length <= (n * 2 + 3)) return str;
+            return `${str.substring(0, n)}...${str.substring(str.length - n)}`;
+        };
+
+        const formatAddress = (address) => {
+            if (!address) return `<span class="text-gray-500">N/A</span>`;
+            return `<a href="${CONFIG.ETHERSCAN_BASE}/address/${address}" target="_blank" class="etherscan-link font-mono" title="${address}">${truncate(address)}</a>`;
+        };
+        
+        const formatTxHash = (hash) => {
+            if (!hash) return `<span class="text-gray-500">N/A</span>`;
+            return `<a href="${CONFIG.ETHERSCAN_BASE}/tx/${hash}" target="_blank" class="etherscan-link font-mono" title="${hash}">${truncate(hash)}</a>`;
+        };
+
+        const formatValue = (value) => {
+            const num = parseFloat(value);
+            if (Number.isNaN(num)) return '0.00000';
+            return num.toFixed(5);
+        };
+
+        const formatPercentNullable = (score) => {
+            if (score === null || score === undefined) return 'N/A';
+            const n = Number(score);
+            if (Number.isNaN(n)) return 'N/A';
+            return (n * 100).toFixed(1) + '%';
+        };
+
+        const timeAgo = (timestamp) => {
+            if (!timestamp) return '-';
+            const now = new Date();
+            const seconds = Math.floor(now.getTime() / 1000) - Number(timestamp);
+            if (seconds < 2) return "just now";
+            let interval = seconds / 31536000;
+            if (interval > 1) return Math.floor(interval) + "y ago";
+            interval = seconds / 2592000;
+            if (interval > 1) return Math.floor(interval) + "mo ago";
+            interval = seconds / 86400;
+            if (interval > 1) return Math.floor(interval) + "d ago";
+            interval = seconds / 3600;
+            if (interval > 1) return Math.floor(interval) + "h ago";
+            interval = seconds / 60;
+            if (interval > 1) return Math.floor(interval) + "m ago";
+            return Math.floor(seconds) + "s ago";
+        };
+
+        async function safeFetch(url, options = {}) {
+            try {
+                const response = await fetch(`${CONFIG.API_BASE}${url}`, options);
+                if (!response.ok) {
+                    let errorText = `HTTP error! status: ${response.status}`;
+                    try { const errorData = await response.json(); errorText = errorData.error || errorText; } catch (e) {}
+                    throw new Error(errorText);
+                }
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.indexOf("application/json") !== -1) {
+                    return await response.json();
+                } else {
+                    return await response.text();
+                }
+            } catch (error) {
+                console.error(`Fetch error for ${url}:`, error);
+                if (options.method !== 'GET' || url.startsWith('/transaction/') || url.startsWith('/wallet/')) {
+                        showModal(`<p class="text-red-400"><strong>API Connection Error:</strong> ${error.message}.<br/>Is your backend server running?</p>`);
+                }
+                return null;
+            }
+        }
+
+        const scoreToLabel = (score, type = 'risk') => {
+            if (score === null || score === undefined) return 'Unknown';
+            if (type === 'risk') {
+                if (score >= 0.8) return 'Very High';
+                if (score >= 0.6) return 'High';
+                if (score >= 0.4) return 'Medium';
+                if (score >= 0.2) return 'Low';
+                return 'Very Low';
+            } else {
+                if (score >= 0.8) return 'Very High';
+                if (score >= 0.6) return 'High';
+                if (score >= 0.4) return 'Medium';
+                if (score >= 0.2) return 'Low';
+                return 'Very Low';
+            }
+        };
+
+        const getScoreClass = (score, type = 'risk', format = 'badge') => {
+            const label = scoreToLabel(score, type);
+            let riskLevel = 'low';
+            if (type === 'risk') {
+                if (label === 'Very High' || label === 'High') riskLevel = 'high';
+                else if (label === 'Medium') riskLevel = 'medium';
+            } else {
+                if (label === 'Very Low' || label === 'Low') riskLevel = 'high';
+                else if (label === 'Medium') riskLevel = 'medium';
+            }
+            switch (format) {
+                case 'text':
+                    if (riskLevel === 'high') return 'text-red-400';
+                    if (riskLevel === 'medium') return 'text-yellow-400';
+                    return 'text-green-400';
+                case 'badge':
+                default:
+                    if (riskLevel === 'high') return 'bg-red-500/20 text-red-300';
+                    if (riskLevel === 'medium') return 'bg-yellow-500/20 text-yellow-300';
+                    return 'bg-green-500/20 text-green-300';
+            }
+        };
+
+        const getRiskIcon = (score, type = 'risk') => {
+            const label = scoreToLabel(score, type);
+            let riskLevel = 'low';
+            if (type === 'risk') {
+                if (label === 'Very High' || label === 'High') riskLevel = 'high';
+                else if (label === 'Medium') riskLevel = 'medium';
+            } else {
+                if (label === 'Very Low' || label === 'Low') riskLevel = 'high';
+                else if (label === 'Medium') riskLevel = 'medium';
+            }
+            if (riskLevel === 'high') {
+                return `<svg class="icon-svg text-red-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" /></svg>`;
+            }
+            if (riskLevel === 'medium') {
+                return `<svg class="icon-svg text-yellow-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.125 2.25h-4.5c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125v-9M10.125 2.25h.375a9 9 0 019 9v.375M10.125 2.25A3.375 3.375 0 0113.5 5.625v1.5c0 .621.504 1.125 1.125 1.125h1.5a3.375 3.375 0 013.375 3.375M9 15l-3-3m0 0l3-3m-3 3h12" /></svg>`;
+            }
+            return `<svg class="icon-svg text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
+        };
+
+        function showTableLoader(tableBody, colSpan) {
+            tableBody.innerHTML = `<tr><td colspan="${colSpan}" class="px-6 py-8 text-center"><div class="flex justify-center items-center"><div class="loading-dot"></div><div class="loading-dot"></div><div class="loading-dot"></div></div><span class="loader-text mt-2">Loading data...</span></td></tr>`;
+        }
+        
+        function showTableNoData(tableBody, colSpan, message = "No data found.") {
+             tableBody.innerHTML = `<tr><td colspan="${colSpan}" class="px-6 py-8 text-center text-gray-500">${message}</td></tr>`;
+        }
+
+        
+        // =======================================================================
+        // DATA RENDERING FUNCTIONS (API-DRIVEN)
+        // =======================================================================
+
+        // (Dashboard and Activity functions removed)
+        async function renderDashboardStats() {}
+        async function renderRecentWallets() {}
+        async function renderRecentTransactions() {}
+        async function renderAllWallets() {}
+        async function renderAllTransactions() {}
+
+
+        // --- NEW: Live Feed Logic (WebSocket + Alchemy WS integration) ---
+        
+        function prependLiveTransaction(tx) {
+            // This check is now very important.
+            if (!tx || !tx.id || seenTxHashes.has(tx.id)) return;
+            
+            const tableBody = document.getElementById('live-feed-table');
+            const noDataRow = tableBody.querySelector('td[colspan="6"]');
+            if (noDataRow) noDataRow.parentElement.remove();
+
+            const tr = document.createElement('tr');
+            
+            // --- KEY CHANGES HERE ---
+            tr.id = `tx-row-${tx.id}`; // <-- SET UNIQUE ID
+            tr.className = `animate-fadeIn cursor-pointer ${getScoreClass(tx.riskScore, 'risk', 'bg')}`;
+            tr.innerHTML = createTxRowHtml(tx); // <-- USE HELPER
+            // --- END KEY CHANGES ---
+
+            tr.addEventListener('click', () => handleTxLookup(tx.id));
+            
+            tableBody.prepend(tr);
+            seenTxHashes.add(tx.id);
+
+            // Clean up the hash set when we remove old rows
+            while (tableBody.rows.length > 100) { 
+                const rowToRemove = tableBody.rows[tableBody.rows.length - 1];
+                if (rowToRemove.id) {
+                    seenTxHashes.delete(rowToRemove.id.replace('tx-row-', '')); 
+                }
+                tableBody.deleteRow(tableBody.rows.length - 1); 
+            }
+        }
+        
+        function connectToSocket() {
+            if (globalSocket) globalSocket.disconnect();
+            
+            globalSocket = io(CONFIG.SOCKET_URL);
+            const statusDot = document.getElementById('live-feed-status-dot');
+
+            globalSocket.on('connect', () => {
+                console.log('Socket.IO connected successfully.');
+                statusDot.innerHTML = `<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>`;
+            });
+
+            globalSocket.on('disconnect', () => {
+                console.warn('Socket.IO disconnected.');
+                statusDot.innerHTML = `<span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>`;
+            });
+
+            // --- THIS IS THE MAIN FIX ---
+            globalSocket.on('new_transaction', (tx) => {
+                console.log('New live transaction received (socket):', tx.id);
+                
+                // Try to find the row that might already exist (from Alchemy)
+                const existingRow = document.getElementById(`tx-row-${tx.id}`);
+
+                if (!existingRow) {
+                    // It's not in the table, so just prepend it as a new "scored" row
+                    prependLiveTransaction(tx);
+                } else {
+                    // It IS in the table (as "Unknown"), so UPDATE IT
+                    console.log(`Updating existing row for tx: ${tx.id}`);
+                    existingRow.innerHTML = createTxRowHtml(tx); // Set new HTML
+                    existingRow.className = `cursor-pointer ${getScoreClass(tx.riskScore, 'risk', 'bg')}`; // Update class for new color
+                    
+                    // Re-add listener (since innerHTML wipes it)
+                    existingRow.removeEventListener('click', () => handleTxLookup(tx.id)); // Prevent duplicates
+                    existingRow.addEventListener('click', () => handleTxLookup(tx.id));
+                }
+            });
+            // --- END OF FIX ---
+            
+            globalSocket.on('connect_error', (err) => {
+                console.error('Socket.IO connection error:', err);
+                statusDot.innerHTML = `<span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>`;
+            });
+        }
+        
+        async function loadInitialLiveFeed() {
+            const tableBody = document.getElementById('live-feed-table');
+            showTableLoader(tableBody, 6); 
+            seenTxHashes.clear();
+            
+            const txs = await safeFetch('/transactions?limit=50', { method: 'GET' });
+            if (!txs || !Array.isArray(txs) || txs.length === 0) {
+                showTableNoData(tableBody, 6, "Waiting for new transactions...");
+                return;
+            }
+            
+            tableBody.innerHTML = '';
+            txs.forEach(tx => { prependLiveTransaction(tx); }); // <-- This is correct
+        }
+
+        // ---------------------------
+        // Alchemy WebSocket (client-side) - optional
+        // ---------------------------
+        function startAlchemyWebsocket() {
+            if (!CONFIG.ALCHEMY_WS || CONFIG.ALCHEMY_WS.includes('YOUR_ALCHEMY_KEY')) {
+                console.warn('Alchemy WS not configured or uses placeholder. Skipping Alchemy live connection.');
+                return;
+            }
+            if (typeof Web3 === 'undefined') {
+                console.warn('Web3 not available in browser environment.');
+                return;
+            }
+
+            try {
+                const provider = new Web3.providers.WebsocketProvider(CONFIG.ALCHEMY_WS, {
+                    clientConfig: { keepalive: true, keepaliveInterval: 60000 },
+                    reconnect: { auto: true, delay: 500, maxAttempts: 10 }
+                });
+                const alchemy = new Web3(provider);
+
+                provider.on('connect', () => {
+                    console.log('Alchemy WS connected');
+                    alchemyConnected = true;
+                    document.getElementById('live-feed-status-dot').innerHTML =
+                        `<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>`;
+                });
+                provider.on('error', (e) => { console.warn('alchemy ws error', e); });
+                provider.on('end', (e) => {
+                    console.warn('alchemy ws end', e);
+                    alchemyConnected = false;
+                    document.getElementById('live-feed-status-dot').innerHTML = `<span class="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>`;
+                });
+
+                alchemy.eth.subscribe('newBlockHeaders', (err, header) => {
+                    if (err) return console.error('subscribe err', err);
+                    (async () => {
+                        try {
+                            const block = await alchemy.eth.getBlock(header.number, true);
+                            if (!block || !block.transactions) return;
+                            for (const tx of block.transactions) {
+                                const normalized = {
+                                    id: tx.hash,
+                                    transaction_hash: tx.hash,
+                                    from: tx.from ? tx.from.toLowerCase() : null,
+                                    to: tx.to ? tx.to.toLowerCase() : null,
+                                    value: alchemy.utils.fromWei(tx.value || '0', 'ether'),
+                                    riskScore: null,
+                                    walletScore: null,
+                                    timestamp: block.timestamp,
+                                    raw_tx: tx
+                                };
+                                if (!seenTxHashes.has(normalized.id)) {
+                                    prependLiveTransaction(normalized);
+                                }
+                            }
+                        } catch (e) {
+                            console.error('block fetch error', e);
+                        }
+                    })();
+                });
+
+                console.log('Started Alchemy live block listener.');
+            } catch (e) {
+                console.error('Failed to start Alchemy WS listener', e);
+            }
+        }
+
+        // =======================================================================
+        // TAB HANDLING & NAVIGATION
+        // =======================================================================
+        
+        // (setupTabs function removed)
+
+        // =======================================================================
+        // LOOKUP & MODAL HANDLING
+        // =======================================================================
+        
+        const modal = document.getElementById('modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalContent = document.getElementById('modal-content');
+        const modalCloseBtn = document.getElementById('modal-close-btn');
+
+        function showModal(content, title = "Lookup Result") {
+            modalTitle.textContent = title;
+            modalContent.innerHTML = content;
+            modal.classList.remove('hidden');
+        }
+
+        function hideModal() {
+            modal.classList.add('hidden');
+            modalContent.innerHTML = '';
+        }
+
+        function setupLookup() {
+            modalCloseBtn.addEventListener('click', hideModal);
+            modal.addEventListener('click', (e) => { if (e.target === modal) hideModal(); });
+            // (Activity lookup buttons removed)
+            document.getElementById('live-lookup-btn').addEventListener('click', () => {
+                const query = document.getElementById('live-lookup').value.trim();
+                if (!query) return;
+                if (query.length > 50) { handleTxLookup(query); } 
+                else { handleWalletLookup(query); }
+            });
+        }
+        
+        async function handleWalletLookup(query) {
+            showModal(`<div class="flex justify-center items-center p-4"><div class="loading-dot"></div><div class="loading-dot"></div><div class="loading-dot"></div><span class="loader-text ml-2">Loading wallet data...</span></div>`, "Wallet Lookup");
+            const data = await safeFetch(`/wallet/${query}`, { method: 'GET' });
+            if (!data || typeof data !== 'object') { return; }
+            
+            const score = data.trust_score;
+            const label = data.trust_level || scoreToLabel(score, 'trust');
+            let historyHtml = '<p class="text-gray-400">No transaction history found.</p>';
+            if (data.history && data.history.length > 0) {
+                historyHtml = `
+                    <div class="overflow-y-auto max-h-40 bg-gray-900/50 rounded-md border border-gray-700/50">
+                        <table class="w-full min-w-full text-sm">
+                            <thead class="bg-gray-800/60"><tr>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">Hash</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">Value</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">Risk</th>
+                            </tr></thead>
+                            <tbody class="divide-y divide-gray-700/50">
+                                ${data.history.map(tx => `
+                                    <tr class="hover:bg-gray-700/40">
+                                        <td class="px-3 py-2">${formatTxHash(tx.hash)}</td>
+                                        <td class="px-3 py-2">${formatValue(tx.value)}</td>
+                                        <td class="px-3 py-2 ${getScoreClass(tx.risk_probability, 'risk', 'text')}">${formatPercentNullable(tx.risk_probability)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>`;
+            }
+            const content = `
+                <div class="space-y-4">
+                    <h4 class="text-lg font-semibold text-white">Wallet: <span class="font-mono text-base text-blue-300">${data.address}</span></h4>
+                    <p>${formatAddress(data.address).replace('etherscan-link', 'etherscan-link text-sm').replace(truncate(data.address), 'View on Etherscan')}</p>
+                    <div class="flex items-center">
+                        <span class="text-sm text-gray-400 mr-2">Trust Level:</span>
+                        <span class="flex items-center px-3 py-1 font-medium rounded-full ${getScoreClass(score, 'trust', 'badge')}">${getRiskIcon(score, 'trust')} ${label}</span>
+                    </div>
+                    <p><span class="text-sm text-gray-400">Trust Score:</span> <span class="font-medium text-xl ${getScoreClass(score, 'trust', 'text')}">${formatPercentNullable(score)}</span></p>
+                    <hr class="border-gray-700/50" />
+                    <h5 class="text-base font-semibold text-gray-300">Recent Transaction History</h5>
+                    ${historyHtml}
+                </div>`;
+            showModal(content, "Wallet Details");
+        }
+
+        async function handleTxLookup(query) {
+            showModal(`<div class="flex justify-center items-center p-4"><div class="loading-dot"></div><div class="loading-dot"></div><div class="loading-dot"></div><span class="loader-text ml-2">Loading transaction data...</span></div>`, "Transaction Lookup");
+            const data = await safeFetch(`/transaction/${query}`, { method: 'GET' });
+            if (!data || typeof data !== 'object') { return; }
+
+            const riskScore = data.risk_probability;
+            const riskLabel = data.risk_level || scoreToLabel(riskScore, 'risk');
+            const fromScore = data.from_wallet_score;
+            const toScore = data.to_wallet_score;
+            const content = `
+                <div class="space-y-3">
+                    <h4 class="text-base font-semibold text-white">Transaction: <span class="font-mono text-sm text-blue-300">${data.transaction_hash}</span></h4>
+                    <p>${formatTxHash(data.transaction_hash).replace('etherscan-link', 'etherscan-link text-sm').replace(truncate(data.transaction_hash), 'View on EEtherscan')}</p>
+                    
+                    <div class="grid grid-cols-2 gap-4 bg-gray-900/30 p-4 rounded-lg border border-gray-700/50">
+                        <div>
+                            <label class="block text-xs text-gray-400">Transaction Risk</label>
+                            <p class="text-xl font-bold ${getScoreClass(riskScore, 'risk', 'text')}">${formatPercentNullable(riskScore)}</p>
+                            <span class="flex items-center w-fit px-3 py-1 text-sm font-medium rounded-full ${getScoreClass(riskScore, 'risk', 'badge')}">${getRiskIcon(riskScore, 'risk')} ${riskLabel}</span>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400">Value</label>
+                            <p class="text-xl font-bold text-white">${formatValue(data.value)} ETH</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400">From Address</label>
+                            <p class="font-mono text-white">${formatAddress(data.from_address)}</p>
+                            <p class="text-sm"><span class="text-gray-400">Sender Trust:</span> <span class="${getScoreClass(fromScore, 'trust', 'text')}">${formatPercentNullable(fromScore)}</span></p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400">To Address</label>
+                            <p class="font-mono text-white">${formatAddress(data.to_address)}</p>
+                            <p class="text-sm"><span class="text-gray-400">Receiver Trust:</span> <span class="${getScoreClass(toScore, 'trust', 'text')}">${formatPercentNullable(toScore)}</span></p>
+                        </div>
+                    </div>
+                    <p><span class="text-sm text-gray-400">Timestamp:</span> <span class="font-medium text-white">${timeAgo(data.timestamp)}</span></p>
+                    <details class="pt-2">
+                        <summary class="text-sm text-gray-500 cursor-pointer hover:text-white">Show Raw Data</summary>
+                        <pre class="debug-json">${JSON.stringify(data.raw_transaction || data, null, 2)}</pre>
+                    </details>
+                </div>`;
+            showModal(content, "Transaction Details");
+        }
+
+        // =======================================================================
+        // INITIALIZATION
+        // =======================================================================
+
+        // (refreshDashboardAndActivity function removed)
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            setActiveNav(); // NEW
+            setupLookup();
+            
+            // Load data for this page
+            loadInitialLiveFeed(); // Load historical data for the feed
+            
+            connectToSocket(); // Connect to Socket.IO (for live txs)
+            startAlchemyWebsocket(); // Connect to Alchemy (for live txs)
+
+            // No refresh interval needed, data comes from websockets
+            if (refreshInterval) clearInterval(refreshInterval);
+        });
+
+    </script>
+</body>
+</html>

@@ -132,6 +132,37 @@ def post_features_to_ml_api(features, tx_hash=None, max_retries=3, timeout=12):
     logger.error(f"All attempts failed to call ML API for tx {tx_hash}")
     return None
 
+
+API_URL = "http://127.0.0.1:5000/transactions"  # change if different host/port
+MAX_RETRIES = 5
+RETRY_BASE = 0.5  # seconds
+
+def post_transaction_to_api(tx_payload):
+    """
+    tx_payload: dict containing transaction data (must include `transaction_hash`).
+    Performs retries with exponential backoff.
+    """
+    headers = {"Content-Type": "application/json"}
+    body = json.dumps(tx_payload)
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = requests.post(API_URL, data=body, headers=headers, timeout=6)
+            if resp.status_code in (200, 201):
+                return resp.json()
+            else:
+                # log and maybe retry
+                print(f"[oracle->api] Unexpected status {resp.status_code}: {resp.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"[oracle->api] Attempt {attempt} failed: {e}")
+        # exponential backoff
+        sleep_for = RETRY_BASE * (2 ** (attempt - 1))
+        time.sleep(sleep_for)
+    # after retries failed
+    print("[oracle->api] All retries failed, saving to local queue (optional).")
+    # Optionally persist to local disk/queue for later resend
+    return None
+
+
 def call_ml_for_tx(tx_hash_hex, features):
     """
     Try GET /transaction/<hash> first (fast, cached), else call POST /predict/transaction.
@@ -225,6 +256,7 @@ def send_update_tx(tx_hash_bytes32, from_addr, to_addr, value_eth, risk_probabil
         receipt = w3.eth.wait_for_transaction_receipt(txh, timeout=180)
         logger.info(f"updateTransactionRisk mined in block {receipt.blockNumber}")
         return txh.hex()
+        
     except Exception as e:
         logger.exception(f"Failed to send updateTransactionRisk tx: {e}")
         return None
@@ -365,7 +397,11 @@ def process_and_update(details):
         )
     except Exception as e:
         logger.exception(f"Failed to send updateTransactionRisk for {tx_hash}: {e}")
-
+    if tx_update_hash:
+        try:
+            requests.post(f"{API_BASE}/transactions/{tx_hash}/onchain", json={"onchain_tx_hash": tx_update_hash}, timeout=8)
+        except Exception:
+            logger.debug("Failed to notify backend about onchain tx")
     # send updateWalletScore only if changed and capture the tx hash
     wallet_update_tx = None
     try:

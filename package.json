@@ -11,6 +11,7 @@
   },
   "type": "module",
   "dependencies": {
-    "schedule": "^0.5.0"
+    "schedule": "^0.5.0",
+    "sqlalchemy": "^10.1.1"
   }
 }
